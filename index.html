@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>飞机大战</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  #wrapper {
+    position: relative;
+    box-shadow: 0 0 40px rgba(100, 150, 255, 0.3);
+  }
+  canvas {
+    background: #0a0e27;
+    display: block;
+    border-radius: 4px;
+  }
+  #info {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    color: #fff;
+    font-size: 16px;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+  }
+  #info span { color: #ffeb3b; font-weight: bold; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: #fff;
+    text-align: center;
+    border-radius: 4px;
+  }
+  #overlay h1 { font-size: 36px; margin-bottom: 16px; color: #ffeb3b; }
+  #overlay p { margin-bottom: 8px; font-size: 14px; opacity: 0.85; }
+  #overlay button {
+    margin-top: 20px;
+    padding: 10px 28px;
+    font-size: 16px;
+    background: #ffeb3b;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #0a0e27;
+    font-weight: bold;
+  }
+  #overlay button:hover { background: #fff176; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrapper">
+  <canvas id="game" width="400" height="600"></canvas>
+  <div id="info">分数: <span id="score">0</span></div>
+  <div id="overlay">
+    <h1>飞机大战</h1>
+    <p>方向键 / WASD 移动</p>
+    <p>空格键 发射子弹（也可自动连射）</p>
+    <button id="startBtn">开始游戏</button>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const scoreEl = document.getElementById('score');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+
+const keys = {};
+let player, bullets, enemies, stars, score, running, lastShot, enemyTimer;
+
+function init() {
+  player = { x: W / 2 - 18, y: H - 80, w: 36, h: 40, speed: 5 };
+  bullets = [];
+  enemies = [];
+  stars = Array.from({ length: 60 }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    s: Math.random() * 1.5 + 0.3
+  }));
+  score = 0;
+  scoreEl.textContent = '0';
+  lastShot = 0;
+  enemyTimer = 0;
+  running = true;
+}
+
+function spawnEnemy() {
+  const w = 30, h = 30;
+  enemies.push({
+    x: Math.random() * (W - w),
+    y: -h,
+    w, h,
+    speed: 1.5 + Math.random() * 1.5
+  });
+}
+
+function shoot() {
+  bullets.push({ x: player.x + player.w / 2 - 2, y: player.y, w: 4, h: 12, speed: 8 });
+}
+
+function rectsHit(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function drawPlayer() {
+  const { x, y, w, h } = player;
+  ctx.fillStyle = '#4fc3f7';
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, y);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x + w / 2 - 3, y + 12, 6, 14);
+  ctx.fillStyle = '#ff5722';
+  ctx.fillRect(x + w / 2 - 2, y + h, 4, 6);
+}
+
+function drawEnemy(e) {
+  ctx.fillStyle = '#ef5350';
+  ctx.beginPath();
+  ctx.moveTo(e.x + e.w / 2, e.y + e.h);
+  ctx.lineTo(e.x, e.y);
+  ctx.lineTo(e.x + e.w, e.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(e.x + e.w / 2 - 2, e.y + 4, 4, 10);
+}
+
+function loop(ts) {
+  if (!running) return;
+
+  ctx.fillStyle = '#0a0e27';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#fff';
+  for (const s of stars) {
+    s.y += s.s;
+    if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
+    ctx.globalAlpha = s.s / 2;
+    ctx.fillRect(s.x, s.y, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+
+  if ((keys['ArrowLeft'] || keys['a'] || keys['A']) && player.x > 0) player.x -= player.speed;
+  if ((keys['ArrowRight'] || keys['d'] || keys['D']) && player.x + player.w < W) player.x += player.speed;
+  if ((keys['ArrowUp'] || keys['w'] || keys['W']) && player.y > 0) player.y -= player.speed;
+  if ((keys['ArrowDown'] || keys['s'] || keys['S']) && player.y + player.h < H) player.y += player.speed;
+
+  if ((keys[' '] || true) && ts - lastShot > 180) {
+    shoot();
+    lastShot = ts;
+  }
+
+  enemyTimer++;
+  if (enemyTimer > Math.max(20, 60 - Math.floor(score / 100) * 5)) {
+    spawnEnemy();
+    enemyTimer = 0;
+  }
+
+  ctx.fillStyle = '#ffeb3b';
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.y -= b.speed;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    if (b.y + b.h < 0) bullets.splice(i, 1);
+  }
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.y += e.speed;
+    drawEnemy(e);
+
+    for (let j = bullets.length - 1; j >= 0; j--) {
+      if (rectsHit(bullets[j], e)) {
+        enemies.splice(i, 1);
+        bullets.splice(j, 1);
+        score += 10;
+        scoreEl.textContent = score;
+        break;
+      }
+    }
+
+    if (rectsHit(player, e) || e.y > H) {
+      if (rectsHit(player, e)) return gameOver();
+      enemies.splice(i, 1);
+    }
+  }
+
+  drawPlayer();
+  requestAnimationFrame(loop);
+}
+
+function gameOver() {
+  running = false;
+  overlay.classList.remove('hidden');
+  overlay.querySelector('h1').textContent = '游戏结束';
+  overlay.querySelector('p').textContent = '最终得分: ' + score;
+  overlay.querySelectorAll('p')[1].textContent = '按按钮重新开始';
+  startBtn.textContent = '再来一局';
+}
+
+function start() {
+  overlay.classList.add('hidden');
+  init();
+  requestAnimationFrame(loop);
+}
+
+startBtn.addEventListener('click', start);
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+</script>
+</body>
+</html>
